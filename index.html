@@ -1,0 +1,771 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="description" content="Chimera: grow a creature from your own genome, swallow smaller ones, and share a body with one other head.">
+<title>Chimera</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Unbounded:wght@500;700;800&family=Golos+Text:wght@400;600;700&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
+<style>
+/* Layout: full-bleed petri dish under a brightfield microscope; HUD pinned to corners as glass-slide labels */
+:root{
+  --field:#efe8f1;
+  --paper:#fbf8fb;
+  --ink:#261d2e;
+  --ink-2:#5f546a;
+  --line:#d3c7da;
+  --hema:#55397f;      /* hematoxylin violet: primary */
+  --eosin:#c9457f;     /* eosin pink: you */
+  --amber:#a8741a;     /* iodine amber: two-headed chimera */
+  --danger:#b8392f;    /* safranin red: threat */
+  --safe:#2f7d52;      /* malachite green: prey */
+  --f-display:"Unbounded","Golos Text",system-ui,sans-serif;
+  --f-body:"Golos Text",system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+  --f-mono:"JetBrains Mono",ui-monospace,SFMono-Regular,Menlo,monospace;
+  color-scheme:light;
+}
+*,*::before,*::after{box-sizing:border-box}
+[hidden]{display:none!important}
+html,body{height:100%;overflow:hidden;margin:0}
+body{background:var(--field);color:var(--ink);font-family:var(--f-body);touch-action:none;user-select:none;-webkit-user-select:none;-webkit-tap-highlight-color:transparent}
+canvas{position:fixed;inset:0;display:block;cursor:crosshair}
+button{font:inherit;cursor:pointer}
+:focus-visible{outline:2px solid var(--hema);outline-offset:2px}
+
+/* ---------- HUD ---------- */
+#brand{position:fixed;left:16px;top:calc(env(safe-area-inset-top,0px) + 14px);display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;pointer-events:none;max-width:calc(100vw - 240px)}
+#brand b{font-family:var(--f-display);font-weight:800;font-size:15px;letter-spacing:.14em;text-transform:uppercase;color:var(--hema)}
+#census{font-family:var(--f-mono);font-size:11px;color:var(--ink-2);letter-spacing:.02em}
+#feed{position:fixed;left:16px;top:calc(env(safe-area-inset-top,0px) + 44px);list-style:none;margin:0;padding:0;display:grid;gap:6px;max-width:min(380px,calc(100vw - 240px));pointer-events:none}
+#feed li{font-size:13px;line-height:1.35;padding:5px 9px;background:rgba(251,248,251,.86);border:1px solid var(--line);border-radius:3px;transition:opacity .6s;display:flex;gap:7px;align-items:baseline}
+#feed li::before{content:"";flex:none;width:6px;height:6px;border-radius:50%;background:var(--ink-2);transform:translateY(-1px)}
+#feed li.mine{border-color:#e3b3c8}
+#feed li.mine::before{background:var(--eosin)}
+#feed li.old{opacity:.45}
+
+#lb{position:fixed;right:16px;top:calc(env(safe-area-inset-top,0px) + 14px);width:206px;background:rgba(251,248,251,.9);border:1px solid var(--line);border-radius:4px;padding:10px 12px 9px;pointer-events:none}
+#lb h2,.eyebrow{margin:0;font-family:var(--f-mono);font-weight:500;font-size:10.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--ink-2)}
+#lb ol{list-style:none;margin:7px 0 0;padding:0;display:grid;gap:2px;font-family:var(--f-mono);font-size:12px;font-variant-numeric:tabular-nums}
+#lb li{display:grid;grid-template-columns:18px 1fr auto;gap:6px;padding:2px 4px;border-radius:2px}
+#lb li span:nth-child(2){overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-family:var(--f-body);font-size:12.5px}
+#lb li.me{background:#f3dbe6;color:#7a2350;font-weight:700}
+#lb li .n{color:var(--ink-2)}
+#lb p{margin:8px 0 0;padding-top:7px;border-top:1px solid var(--line);font-size:11.5px;color:var(--ink-2);line-height:1.35}
+
+#me{position:fixed;left:16px;bottom:calc(env(safe-area-inset-bottom,0px) + 16px);width:min(340px,calc(100vw - 32px));background:rgba(251,248,251,.93);border:1px solid var(--line);border-radius:4px;padding:12px 14px;display:grid;gap:10px;pointer-events:none}
+#role{justify-self:start;font-family:var(--f-display);font-weight:700;font-size:12px;letter-spacing:.12em;text-transform:uppercase;padding:5px 9px 4px;border-radius:2px;color:#fff;background:var(--hema)}
+#role.pilot{background:var(--amber)}
+#role.co{background:#7d5512}
+#role.bare{background:var(--danger)}
+#me dl{margin:0;display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+#me dl div{min-width:0}
+#me dt{font-family:var(--f-mono);font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:var(--ink-2)}
+#me dd{margin:2px 0 0;font-family:var(--f-mono);font-weight:700;font-size:18px;font-variant-numeric:tabular-nums}
+#hint{margin:0;font-size:13px;line-height:1.4;color:var(--ink)}
+#hint.warn{color:var(--danger);font-weight:600}
+#hint kbd{font-family:var(--f-mono);font-size:11px;padding:1px 5px;border:1px solid var(--line);border-bottom-width:2px;border-radius:3px;background:var(--paper)}
+#hint .r{color:var(--danger);font-weight:700}#hint .g{color:var(--safe);font-weight:700}
+
+#touch{position:fixed;right:16px;bottom:calc(env(safe-area-inset-bottom,0px) + 16px)}
+#touch button{width:78px;height:78px;border-radius:50%;border:2px solid var(--danger);background:rgba(251,248,251,.9);font-family:var(--f-display);font-weight:700;font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--danger);touch-action:none}
+#touch button:active{background:var(--danger);color:#fff}
+
+/* ---------- Panels: a glass slide with its frosted label end ---------- */
+.panel{position:fixed;left:max(16px,6vw);top:50%;transform:translateY(-50%);width:min(450px,calc(100vw - 32px));max-height:calc(100% - 32px);overflow:auto;background:var(--paper);border:1px solid var(--line);border-radius:4px;box-shadow:0 30px 60px -28px rgba(38,29,46,.55),0 2px 0 rgba(255,255,255,.7) inset;display:grid;grid-template-columns:20px minmax(0,1fr);user-select:text;-webkit-user-select:text}
+.panel::before{content:"";background:repeating-linear-gradient(135deg,#e4dbe8 0 2px,transparent 2px 6px);border-right:1px solid var(--line)}
+.panel .in{padding:22px 24px 22px 20px;display:grid;gap:16px;min-width:0}
+.panel h1{margin:0;font-family:var(--f-display);font-weight:800;font-size:clamp(34px,7vw,48px);line-height:1;letter-spacing:-.02em;color:var(--hema);text-wrap:balance}
+.lede{margin:0;font-size:15.5px;line-height:1.5;max-width:60ch;text-wrap:pretty}
+.rules{margin:0;display:grid;grid-template-columns:auto minmax(0,1fr);gap:9px 12px;align-items:baseline}
+.rules dt{font-family:var(--f-mono);font-weight:700;font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;padding:3px 6px 2px;border-radius:2px;color:#fff;justify-self:start}
+.rules dd{margin:0;font-size:13.5px;line-height:1.45;color:var(--ink)}
+.t-eat{background:var(--hema)}.t-abs{background:var(--safe)}.t-pilot{background:var(--amber)}.t-bite{background:var(--danger)}.t-split{background:var(--ink)}
+.row{display:flex;gap:8px;flex-wrap:wrap}
+.row input{flex:1 1 160px;min-width:0;font:inherit;font-size:15px;padding:11px 12px;border:1px solid var(--line);border-radius:3px;background:#fff;color:var(--ink)}
+.row input::placeholder{color:#9b90a4}
+.go{flex:0 0 auto;font-family:var(--f-display);font-weight:700;font-size:14px;letter-spacing:.02em;padding:12px 18px;border:0;border-radius:3px;background:var(--hema);color:#fff;transition:background .15s,transform .1s}
+.go:hover{background:#462e6b}
+.go:active{transform:translateY(1px)}
+.keys{margin:0;font-family:var(--f-mono);font-size:11px;line-height:1.6;color:var(--ink-2)}
+.proto{margin:0;font-size:12px;line-height:1.45;color:var(--ink-2);border-top:1px solid var(--line);padding-top:12px}
+.stats{margin:0;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}
+.stats dt{font-family:var(--f-mono);font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:var(--ink-2)}
+.stats dd{margin:3px 0 0;font-family:var(--f-mono);font-weight:700;font-size:22px;font-variant-numeric:tabular-nums}
+
+@media (max-width:700px){
+  #census{display:none}
+  #lb{width:150px;padding:8px 10px}
+  #lb p{display:none}
+  #feed{max-width:calc(100vw - 200px)}
+  #feed li{font-size:12px}
+  #me{width:calc(100vw - 32px - 106px);padding:10px 12px;gap:7px}
+  #me dd{font-size:15px}
+  #hint{font-size:12px}
+  .panel{left:16px;top:auto;bottom:calc(env(safe-area-inset-bottom,0px) + 16px);transform:none;max-height:calc(100% - 90px)}
+  .panel .in{padding:18px 16px 18px 14px;gap:13px}
+}
+@media (max-height:820px) and (min-width:701px){
+  .panel .in{padding:16px 20px 16px 18px;gap:11px}
+  .panel h1{font-size:36px}
+  .lede{font-size:14px;line-height:1.45}
+  .rules{gap:6px 10px}
+  .rules dd{font-size:12.5px;line-height:1.4}
+  .proto{display:none}
+}
+@media (max-height:600px){.lede{display:none}.rules dd{font-size:12px}}
+@media (prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+</head>
+<body>
+<canvas id="c" aria-label="Game field: a petri dish full of creatures"></canvas>
+
+<header id="brand"><b>Chimera</b><span id="census"></span></header>
+<ol id="feed" aria-live="polite"></ol>
+
+<aside id="lb" aria-label="Leaderboard">
+  <h2>Cells owned</h2>
+  <ol id="lbList"></ol>
+  <p id="biggest"></p>
+</aside>
+
+<section id="me" hidden aria-live="polite">
+  <div id="role">Solo</div>
+  <dl>
+    <div><dt>Size</dt><dd id="mSize">0</dd></div>
+    <div><dt>Yours</dt><dd id="mOwn">0</dd></div>
+    <div><dt>Heads</dt><dd id="mHeads">1</dd></div>
+  </dl>
+  <p id="hint"></p>
+</section>
+
+<div id="touch" hidden><button id="bSplit" type="button">Break</button></div>
+
+<div id="start" class="panel" role="dialog" aria-labelledby="startTitle">
+  <div class="in">
+    <p class="eyebrow">Specimen No. 4 · petri dish, ×400</p>
+    <h1 id="startTitle">Chimera</h1>
+    <p class="lede">You are a head. Everything you eat becomes your body, and every creature grows its own shape. Swallow smaller creatures whole, and if a big one swallows you, hope you are big enough to keep your head.</p>
+    <dl class="rules">
+      <dt class="t-eat">Eat</dt><dd>Your head and your whole body eat food and grey cells, and every crumb feeds whoever owns the cell that touched it. Your genome decides the shape: legs, claws, fins, spikes, a long tail or a forked one.</dd>
+      <dt class="t-abs">Absorb</dt><dd>Touch anything 25% smaller and it becomes part of you. Touch anything 25% bigger and it takes you.</dd>
+      <dt class="t-pilot">Two heads</dt><dd>A chimera has two seats. Heads already seated keep them. Any other head it swallows is eaten, and its cells are split 50/50 between the two pilots.</dd>
+      <dt class="t-bite">Bite</dt><dd>Close in size? Nobody gets absorbed. Heads bite cells off each other's bodies instead.</dd>
+      <dt class="t-split">Break</dt><dd id="ruleSplit">Space breaks you away from a chimera with every cell you own. If a bigger creature grabs you, you have a moment to hit Space and slip free.</dd>
+    </dl>
+    <div class="row">
+      <input id="nick" maxlength="14" placeholder="Name your head" autocomplete="off" spellcheck="false" aria-label="Name your head">
+      <button id="go" class="go" type="button">Into the dish</button>
+    </div>
+    <p class="keys" id="keys">Mouse: steer · Space / E / right click: break away</p>
+    <p class="proto">Prototype: the other heads are bots with temperaments. Loyal ones follow their pilot, greedy ones chase food, traitors walk out with their cells.</p>
+  </div>
+</div>
+
+<div id="dead" class="panel" role="dialog" aria-labelledby="deadTitle" hidden>
+  <div class="in">
+    <p class="eyebrow">Specimen lost</p>
+    <h1 id="deadTitle">You were eaten</h1>
+    <p class="lede" id="deadWho"></p>
+    <dl class="stats">
+      <div><dt>Peak cells</dt><dd id="dPeak">0</dd></div>
+      <div><dt>Absorbed</dt><dd id="dKills">0</dd></div>
+      <div><dt>Survived</dt><dd id="dTime">0s</dd></div>
+    </dl>
+    <div class="row"><button id="again" class="go" type="button">Respawn</button></div>
+  </div>
+</div>
+
+<script>
+/* ================= setup ================= */
+const $=id=>document.getElementById(id);
+const cv=$('c'),ctx=cv.getContext('2d');
+let VW=innerWidth,VH=innerHeight,DPR=1;
+function resize(){DPR=Math.min(2,window.devicePixelRatio||1);VW=innerWidth;VH=innerHeight;cv.width=Math.round(VW*DPR);cv.height=Math.round(VH*DPR);cv.style.width=VW+'px';cv.style.height=VH+'px';}
+addEventListener('resize',resize);resize();
+const RM=!!(window.matchMedia&&matchMedia('(prefers-reduced-motion: reduce)').matches);
+const TOUCH=!!(window.matchMedia&&matchMedia('(pointer: coarse)').matches);
+
+const TAU=Math.PI*2;
+const R_DISH=2000,BOT_N=28,FOOD_N=520,FREE_N=110,SP=24,RB=13.5,HEAD_R=19,BIO_PER_CELL=5;
+const ABS=1.25;     // size ratio needed to absorb on touch
+const SURV=.35;     // second head survives only if it owns at least 35% of the top head's cells
+const PLAYER_COL='#d0558b';
+const BOT_COLS=['#6a4c9e','#3b7db6','#c5463c','#4b976a','#c4882b','#8b3f7b','#2d8d98'];
+const FOODCOL=['rgba(120,96,146,.55)','rgba(160,110,132,.55)','rgba(98,128,152,.55)'];
+const NAMES=['Mox','Kira','Zed','Lumen','Phage','Nova','Fungo','Pixel','Ryo','Echo','Vex','Atom','Yuki','Moss','Rex','Ion','Luma','Bruno','Tofu','Gloop','Spore','Blip','Nib','Quill','Wisp','Ooze','Fizz','Pip','Sprout','Kelp','Mold','Jelly','Bean','Grub','Dot','Zap','Nori','Brine','Coral','Flux','Midge','Squid','Biscuit','Olm','Tardi','Fern','Yolk','Crumb'];
+
+const rand=(a,b)=>a+Math.random()*(b-a);
+const irand=(a,b)=>a+((Math.random()*(b-a+1))|0);
+const clamp=(v,a,b)=>v<a?a:v>b?b:v;
+const hyp=Math.hypot;
+const colCache={};
+function rgba(hex,a){const k=hex+a;let v=colCache[k];if(!v){const n=parseInt(hex.slice(1),16);v=colCache[k]='rgba('+(n>>16)+','+((n>>8)&255)+','+(n&255)+','+a+')';}return v;}
+function mix(h1,h2,t){const a=parseInt(h1.slice(1),16),b=parseInt(h2.slice(1),16);const r=Math.round((a>>16)*(1-t)+(b>>16)*t),g=Math.round(((a>>8)&255)*(1-t)+((b>>8)&255)*t),bl=Math.round((a&255)*(1-t)+(b&255)*t);return'#'+((1<<24)|(r<<16)|(g<<8)|bl).toString(16).slice(1);}
+const SKIN={},EDGE={};for(const c of[PLAYER_COL,...BOT_COLS]){SKIN[c]=mix(c,'#fbf8fb',.8);EDGE[c]=mix(c,'#261d2e',.35);}
+function esc(s){return String(s).replace(/[&<>"']/g,ch=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));}
+const plural=(n,w)=>n+' '+w+(n===1?'':'s');
+function shuffle(a){for(let i=a.length-1;i>0;i--){const j=(Math.random()*(i+1))|0;[a[i],a[j]]=[a[j],a[i]];}return a;}
+
+/* ================= genomes: every head carries its own body plan ================= */
+const HEXPTS=(()=>{const p=[];for(let q=-14;q<=14;q++)for(let r=-14;r<=14;r++)p.push({x:SP*(q+r/2),y:SP*r*.866});return p;})();
+let gid=1;
+function makeGenome(){
+  const g={id:gid++,elong:rand(1.05,2.2),wedge:rand(-.45,.45),tf:rand(.32,.55),rs:rand(.9,1.12),apps:[],order:[],torso:null};
+  const A=g.apps;
+  const nLegs=Math.random()<.85?irand(1,2):0;
+  for(let i=0;i<nLegs;i++){const th=rand(1.25,2.6);A.push({kind:'l',pair:true,th,phi:th+rand(-.05,.35),curl:rand(-.1,.4),max:irand(2,5),step:rand(.75,.9),r0:rand(.85,1),taper:rand(.05,.12),phase:i*2.1+rand(0,1)});}
+  if(Math.random()<.78){if(Math.random()<.3)A.push({kind:'tail',pair:true,th:Math.PI-.25,phi:Math.PI-rand(.15,.45),curl:rand(-.15,.15),max:irand(3,6),step:.8,r0:.9,taper:.08});
+    else A.push({kind:'tail',pair:false,th:Math.PI,phi:Math.PI,curl:0,max:irand(4,9),step:rand(.75,.9),r0:rand(.85,1.05),taper:rand(.04,.1)});}
+  if(Math.random()<.5){const th=rand(.4,.9);A.push({kind:'l',pair:true,th,phi:th+rand(-.2,.3),curl:-rand(.1,.45),max:irand(2,4),step:.82,r0:.9,taper:.06,claw:Math.random()<.65,phase:1.3});}
+  if(Math.random()<.3)A.push({kind:'h',pair:true,th:.55,phi:.35,curl:rand(.1,.35),max:irand(2,4),step:.78,r0:.6,taper:.05});
+  if(Math.random()<.45){const n=irand(2,4);for(let i=0;i<n;i++){const th=.9+i*(1.5/n);A.push({kind:'s',pair:true,th,phi:th+.15,curl:0,max:Math.random()<.4?2:1,step:.7,r0:.7,taper:.15});}}
+  if(Math.random()<.35){const th=rand(1.1,1.8);A.push({kind:'f',pair:true,th,phi:th+.3,curl:.35,max:irand(2,3),step:.7,r0:1.15,taper:.12});}
+  if(!A.length)A.push({kind:'l',pair:true,th:1.9,phi:2.1,curl:.2,max:4,step:.82,r0:.95,taper:.08,phase:0});
+  A.forEach((ap,i)=>{const w=ap.kind==='l'?3:ap.kind==='tail'?2:1;for(let k=0;k<w;k++)g.order.push(i);});shuffle(g.order);
+  return g;
+}
+function torsoOrder(g){if(g.torso)return g.torso;
+  g.torso=HEXPTS.map(p=>({x:p.x,y:p.y,d:(p.x/g.elong)**2+(p.y*(1+g.wedge*p.x/110))**2})).sort((a,b)=>(a.d-b.d)||(Math.abs(a.y)-Math.abs(b.y))||(b.x-a.x)||(a.y-b.y));return g.torso;}
+const PLANS=new Map();
+function bodyPlan(N,gA,gB){
+  const key=gA.id+'.'+gB.id+'.'+N;if(PLANS.has(key))return PLANS.get(key);
+  if(PLANS.size>4000)PLANS.clear();
+  let torsoN=N<=5?N:5+Math.round((N-5)*gA.tf);let R=N-torsoN;
+  const lenA=gA.apps.map(()=>0);
+  for(let guard=0;R>0&&guard<400;guard++){let prog=false;
+    for(const ai of gA.order){if(R<=0)break;const ap=gA.apps[ai];if(lenA[ai]>=ap.max)continue;const cost=ap.pair?2:1;if(R<cost)continue;lenA[ai]++;R-=cost;prog=true;}
+    if(!prog)break;}
+  const hybrid=gB!==gA;let lenB=null,extra=0;
+  if(hybrid){let budget=0;gA.apps.forEach((ap,i)=>{if(ap.pair)budget+=lenA[i];});lenB=gB.apps.map(()=>0);
+    for(let guard=0;budget>0&&guard<400;guard++){let prog=false;
+      for(const ai of gB.order){if(budget<=0)break;const ap=gB.apps[ai];if(!ap.pair||lenB[ai]>=ap.max)continue;lenB[ai]++;budget--;prog=true;}
+      if(!prog)break;}
+    extra=budget;}
+  torsoN+=R+extra;
+  const tor=torsoOrder(gA),slots=[];let cx=0,cy=0;
+  for(let i=0;i<torsoN;i++){cx+=tor[i].x;cy+=tor[i].y;}if(torsoN){cx/=torsoN;cy/=torsoN;}
+  let a0=0,b0=0;
+  for(let i=0;i<torsoN;i++){const x=tor[i].x-cx,y=tor[i].y-cy;slots.push({x,y,kind:'t',r:RB*gA.rs*(1+.04*((i*7)%3)),seg:0,side:0,phase:0});a0=Math.max(a0,Math.abs(x));b0=Math.max(b0,Math.abs(y));}
+  const chain=(g,ap,side,len)=>{let px=Math.cos(ap.th)*(a0+RB*.1),py=side*Math.sin(ap.th)*(b0+RB*.1);
+    for(let s=1;s<=len;s++){const ph=ap.phi+ap.curl*(s-1);px+=Math.cos(ph)*SP*ap.step;py+=side*Math.sin(ph)*SP*ap.step;
+      let r=RB*g.rs*Math.max(.45,ap.r0-ap.taper*s);if(ap.claw&&s===len&&len>1)r=RB*1.2;
+      slots.push({x:px,y:py,kind:ap.kind,side,seg:s,phase:ap.phase||0,r});}};
+  gA.apps.forEach((ap,i)=>{if(!lenA[i])return;if(!ap.pair)chain(gA,ap,1,lenA[i]);else if(hybrid)chain(gA,ap,1,lenA[i]);else{chain(gA,ap,1,lenA[i]);chain(gA,ap,-1,lenA[i]);}});
+  if(hybrid)gB.apps.forEach((ap,i)=>{if(lenB[i])chain(gB,ap,-1,lenB[i]);});
+  let rad=0;for(const s of slots)rad=Math.max(rad,hyp(s.x,s.y)+s.r);
+  const plan={slots,a0,b0,rad};PLANS.set(key,plan);return plan;
+}
+
+/* ================= state ================= */
+let T=0,heads=[],cres=[],free=[],food=[],parts=[],feed=[],nextId=1,nameIdx=(Math.random()*NAMES.length)|0;
+let player=null,playing=false,stats={start:0,peak:0,kills:0},follow=null,followT=0,spawnT=0,flashMsg='',flashT=0,feedDirty=true,lossAcc=0,lossT=0,lastBiter='';
+const cam={x:0,y:0,z:.7};
+const input={mx:0,my:0,has:false,split:false,touchId:null};
+function say(text,mine){feed.unshift({text,mine:!!mine,t:T});if(feed.length>6)feed.length=6;feedDirty=true;}
+function flash(msg){flashMsg=msg;flashT=T+1.8;}
+
+/* ================= entities ================= */
+function makeHead(x,y,o){o=o||{};
+  const h={t:2,id:nextId++,name:o.name||NAMES[(nameIdx++)%NAMES.length],col:o.col||BOT_COLS[(Math.random()*BOT_COLS.length)|0],isPlayer:!!o.isPlayer,bot:null,genome:makeGenome(),eyes:[1,1,2,2,2,3][irand(0,5)],
+    x,y,vx:0,vy:0,r:HEAD_R,cre:null,dx:0,dy:0,mag:0,face:Math.random()*TAU,biteCd:0,bitT:-9,shieldUntil:0,graceUntil:0,
+    alive:true,stretch:0,stretchT:0,bio:0,owned:0,kills:0,blink:rand(2,6)};
+  if(!h.isPlayer){const r=Math.random();h.bot={pers:r<.5?'loyal':r<.8?'greedy':'traitor',social:Math.random()<.5,t:Math.random()*.3,wa:Math.random()*TAU,leaveT:T+rand(5,9)};}
+  heads.push(h);return h;}
+function makeCre(h,cells){
+  const c={id:nextId++,heads:[h],cells:[],x:h.x,y:h.y,vx:0,vy:0,ang:Math.random()*TAU,walk:0,gait:0,turn:0,plan:bodyPlan(0,h.genome,h.genome),anch:new Map(),rad:HEAD_R*2,dirty:true,dead:false,pushx:0,pushy:0,lead:h,gkey:''};
+  h.cre=c;
+  if(typeof cells==='number'){for(let i=0;i<cells;i++)addCell(c,h,h.x+rand(-25,25),h.y+rand(-25,25));}
+  else if(cells){for(const b of cells){b.cre=c;c.cells.push(b);}}
+  cres.push(c);return c;}
+function addCell(c,owner,x,y){const b={t:1,x,y,r:RB*.4,owner,cre:c,si:-1,flash:.5,ph:Math.random()*TAU};c.cells.push(b);c.dirty=true;return b;}
+function spawnFood(){const a=Math.random()*TAU,d=Math.sqrt(Math.random())*(R_DISH-40);food.push({x:Math.cos(a)*d,y:Math.sin(a)*d,a:Math.random()*TAU,l:rand(4,10),k:(Math.random()*3)|0,vx:rand(-5,5),vy:rand(-5,5)});}
+function spawnFree(x,y){if(x===undefined){const a=Math.random()*TAU,d=Math.sqrt(Math.random())*(R_DISH-60);x=Math.cos(a)*d;y=Math.sin(a)*d;}free.push({x,y,vx:rand(-20,20),vy:rand(-20,20),r:rand(9,11),ph:Math.random()*TAU});}
+
+const sizeOf=c=>c.cells.length+2*c.heads.length;
+const shielded=c=>c.heads.some(h=>T<h.shieldUntil);
+const leaderOf=c=>(c.lead&&c.lead.alive&&c.lead.cre===c)?c.lead:c.heads[0];
+const copilotOf=c=>c.heads.find(h=>h!==leaderOf(c))||null;
+function speedOf(c){return 255/(1+c.cells.length*.009)*(c.heads.length>1?1.08:1);}
+function neckLen(c){return 34+4*Math.sqrt(c.cells.length);}
+function survivors(list){const r=list.slice().sort((p,q)=>q.owned-p.owned);const keep=[r[0]];if(r[1]&&r[1].owned>=r[0].owned*SURV&&r[1].owned>0)keep.push(r[1]);return keep;}
+
+/* ================= layout ================= */
+function relayout(c){
+  const N=c.cells.length,H=c.heads.length,L=leaderOf(c),co=copilotOf(c);
+  const plan=bodyPlan(N,L.genome,(co||L).genome);c.plan=plan;c.gkey=L.id+'.'+(co?co.id:0);
+  const ca=Math.cos(c.ang),sa=Math.sin(c.ang),pool=c.cells.slice();
+  for(let i=0;i<plan.slots.length;i++){const s=plan.slots[i],wx=c.x+s.x*ca-s.y*sa,wy=c.y+s.x*sa+s.y*ca;
+    let bi=0,bd=1e18;for(let k=0;k<pool.length;k++){const q=pool[k],d=(q.x-wx)**2+(q.y-wy)**2;if(d<bd){bd=d;bi=k;}}
+    pool[bi].si=i;pool[bi]=pool[pool.length-1];pool.pop();}
+  // leader's neck on the right (+y), co-pilot's on the left, matching the hybrid body halves
+  const order=co?[co,L]:[L];
+  c.anch=new Map();
+  order.forEach((h,i)=>{const th=H>1?(i===0?-.5:.5):0;let bx,by,rest;
+    if(N>0){bx=Math.cos(th)*(plan.a0+RB*.5);by=Math.sin(th)*(plan.b0+RB*.5);rest=HEAD_R+8;}
+    else{bx=0;by=H>1?(i===0?-HEAD_R:HEAD_R):0;rest=0;}
+    c.anch.set(h,{bx,by,x:bx+Math.cos(th)*rest,y:by+Math.sin(th)*rest});});
+  c.rad=plan.rad+HEAD_R*2+16;c.dirty=false;
+}
+
+/* ================= actions ================= */
+function bite(h,o,b){
+  if(!o.cells.includes(b))return;
+  const take=sizeOf(h.cre)>sizeOf(o)*1.12?2:1;
+  const list=[b];
+  if(take>1){let best=null,bd=1e9;for(const q of o.cells){if(q===b)continue;const d=hyp(q.x-b.x,q.y-b.y);if(d<bd){bd=d;best=q;}}if(best)list.push(best);}
+  const vCol=b.owner.col;
+  for(const q of list){o.cells.splice(o.cells.indexOf(q),1);q.owner=h;q.cre=h.cre;q.flash=.6;h.cre.cells.push(q);h.owned++;}
+  o.dirty=h.cre.dirty=true;h.biteCd=.42;h.bitT=T;
+  burst(b.x,b.y,vCol,6+list.length*3);
+  floatText('+'+list.length,h.x,h.y-h.r-8,'#55397f');floatText('−'+list.length,b.x,b.y,'#b8392f');
+  if(player&&player.alive&&o===player.cre){lossAcc+=list.length;if(!lossT)lossT=T;lastBiter=h.name;}
+}
+function headBite(h,g){
+  const o=g.cre;
+  if(o.cells.length===0)return kill(g,h);
+  let best=o.cells[0],bd=1e9;for(const q of o.cells){const d=hyp(q.x-g.x,q.y-g.y);if(d<bd){bd=d;best=q;}}
+  bite(h,o,best);g.vx+=(g.x-h.x)*3;g.vy+=(g.y-h.y)*3;
+}
+function kill(g,h){
+  g.alive=false;const o=g.cre;o.heads.splice(o.heads.indexOf(g),1);
+  if(!o.heads.length){for(const b of o.cells)spawnFree(b.x,b.y);o.cells=[];o.dead=true;}
+  else{const L=leaderOf(o);for(const b of o.cells)if(b.owner===g)b.owner=L;o.dirty=true;}
+  for(let i=0;i<2;i++)addCell(h.cre,h,g.x,g.y);
+  h.kills++;burst(g.x,g.y,g.col,26);floatText('gulp',g.x,g.y,'#261d2e');
+  if(g.isPlayer)die(h,'eaten');
+  else if(h.isPlayer){say('You swallowed '+g.name,true);stats.kills++;}
+  else if(player&&player.alive&&h.cre===player.cre)say('Your chimera swallowed '+g.name,true);
+}
+function seatsAfter(A,B){ // which heads keep control if A swallows B: seated heads keep their seats
+  const keep=A.heads.slice();
+  if(keep.length<2){const L=leaderOf(A);let best=null;for(const g of B.heads)if(g.owned>0&&g.owned>=L.owned*SURV&&(!best||g.owned>best.owned))best=g;if(best)keep.push(best);}
+  return keep;}
+function absorb(A,B){
+  if(A.dead||B.dead||A===B)return;
+  const aLead=leaderOf(A),bLead=leaderOf(B),gain=B.cells.length;
+  const pA=player&&player.alive&&A.heads.includes(player),pB=player&&player.alive&&B.heads.includes(player);
+  const keep=seatsAfter(A,B),losers=B.heads.filter(g=>!keep.includes(g)),joiner=B.heads.find(g=>keep.includes(g))||null;
+  for(const g of B.heads)g.cre=A;
+  for(const b of B.cells){b.cre=A;b.flash=.7;A.cells.push(b);}
+  A.heads=keep;B.cells=[];B.heads=[];B.dead=true;B.grab=null;A.dirty=true;
+  // prey is shared: every cell of an eaten head goes to the pilots, alternating 50/50
+  let k=0;for(const b of A.cells)if(losers.includes(b.owner)){b.owner=keep[k%keep.length];k++;}
+  for(const g of losers){g.alive=false;g.owned=0;burst(g.x,g.y,g.col,22);floatText('eaten',g.x,g.y,'#b8392f');}
+  for(const g of keep)g.owned=0;for(const b of A.cells)b.owner.owned++;
+  for(const g of keep){g.graceUntil=T+1.6;g.stretchT=0;}
+  ring(A.x,A.y,'#2f7d52',A.rad*.5);
+  const share=keep.length>1?Math.round(k/2):k;
+  if(pB){
+    if(joiner===player)say('Swallowed by '+aLead.name+', but you took the free seat. You co-pilot now',true);
+    else die(aLead,'absorbed');}
+  else if(pA){
+    say('Swallowed '+bLead.name+(k?': +'+plural(share,'cell')+(keep.length>1?' each':''):''),true);
+    if(joiner)say(joiner.name+' took the free seat and co-pilots with you',true);
+    stats.kills++;}
+  else if(gain>=18)say(aLead.name+' swallowed '+bLead.name);
+}
+function die(h,how){
+  playing=false;follow=h;followT=T+12;
+  const info={who:h.name,peak:stats.peak,kills:stats.kills,time:Math.round(T-stats.start)};
+  const txt=how==='eaten'?info.who+' bit your head after your body was stripped bare. Keep cells around you: they are your armor.'
+    :how==='outranked'?info.who+' merged into your chimera owning far more cells than you. Only two heads steer, so yours was eaten.'
+    :info.who+'\'s creature swallowed you and had no free seat for your head. When a bigger creature grabs you, you have a moment: hit '+(TOUCH?'Break':'Space')+' to break free.';
+  setTimeout(()=>{
+    $('deadTitle').textContent=how==='eaten'?'You were eaten':how==='outranked'?'You were outranked':'You were absorbed';
+    $('deadWho').textContent=txt;$('dPeak').textContent=info.peak;$('dKills').textContent=info.kills;$('dTime').textContent=info.time+'s';
+    $('me').hidden=true;$('touch').hidden=true;$('dead').hidden=false;$('again').focus();
+  },800);
+}
+function split(h,how){
+  const C=h.cre;if(C.heads.length<2)return false;
+  const mine=C.cells.filter(b=>b.owner===h);
+  C.heads.splice(C.heads.indexOf(h),1);C.cells=C.cells.filter(b=>b.owner!==h);C.dirty=true;if(C.lead===h)C.lead=C.heads[0];
+  const n=makeCre(h,mine);
+  let ax=h.x-C.x,ay=h.y-C.y;const d=hyp(ax,ay)||1;ax/=d;ay/=d;
+  n.ang=Math.atan2(ay,ax);
+  if(mine.length){let mx=0,my=0;for(const b of mine){mx+=b.x;my+=b.y;}n.x=mx/mine.length;n.y=my/mine.length;}
+  h.vx+=ax*300;h.vy+=ay*300;h.dashUntil=T+.35;n.vx=ax*160;n.vy=ay*160;C.vx-=ax*60;C.vy-=ay*60;
+  h.stretchT=0;h.shieldUntil=Math.max(h.shieldUntil,T+1.1);if(!C.grab)for(const g of C.heads)g.shieldUntil=Math.max(g.shieldUntil,T+1);
+  burst(h.x,h.y,h.col,14);ring(h.x,h.y,'#261d2e',h.r+14);
+  const lead=C.heads.length?leaderOf(C).name:'';
+  if(h.isPlayer)say((how==='tore'?'You tore loose':'You split off')+' with '+plural(mine.length,'cell'),true);
+  else if(player&&player.alive&&C===player.cre)say(h.name+' left your chimera and took '+plural(mine.length,'cell'),true);
+  else if(mine.length>=8)say((h.bot&&h.bot.pers==='traitor'?'Traitor! ':'')+h.name+' walked out on '+lead+' with '+plural(mine.length,'cell'));
+  return true;
+}
+
+/* ================= particles ================= */
+function burst(x,y,col,n){if(parts.length>500)return;for(let i=0;i<n;i++){const a=Math.random()*TAU,s=rand(40,200),l=rand(.35,.9);parts.push({x,y,vx:Math.cos(a)*s,vy:Math.sin(a)*s,life:l,max:l,col,r:rand(1.5,4)});}}
+function ring(x,y,col,r){parts.push({ring:true,x,y,r,life:.55,max:.55,col});}
+function floatText(txt,x,y,col){parts.push({txt,x,y,vx:0,vy:-38,life:.9,max:.9,col});}
+
+/* ================= spawning ================= */
+function freeSpot(minD){let best={x:0,y:0},bd=-1;
+  for(let k=0;k<40;k++){const a=Math.random()*TAU,d=Math.sqrt(Math.random())*(R_DISH-220),x=Math.cos(a)*d,y=Math.sin(a)*d;
+    let md=1e9;for(const c of cres){if(c.dead)continue;const dd=hyp(c.x-x,c.y-y)-c.rad;if(dd<md)md=dd;}
+    if(md>minD)return{x,y};if(md>bd){bd=md;best={x,y};}}
+  return best;}
+function spawnBot(n,shield){const p=freeSpot(300);const h=makeHead(p.x,p.y);makeCre(h,n);if(shield)h.shieldUntil=T+2.5;return h;}
+function init(){
+  for(let i=0;i<FOOD_N;i++)spawnFood();
+  for(let i=0;i<FREE_N;i++)spawnFree();
+  for(let k=0;k<4;k++){const p=freeSpot(420);const a=makeHead(p.x,p.y);makeCre(a,irand(14,20));const b=makeHead(p.x+30,p.y+20);makeCre(b,irand(9,13));
+    a.owned=a.cre.cells.length;b.owned=b.cre.cells.length;absorb(a.cre,b.cre);}
+  while(heads.length<BOT_N)spawnBot(irand(2,18),false);
+  heads=heads.filter(h=>h.alive);cres=cres.filter(c=>!c.dead&&c.heads.length);
+  for(const c of cres)relayout(c);
+  const big=cres.reduce((a,b)=>sizeOf(b)>sizeOf(a)?b:a);cam.x=big.x;cam.y=big.y;
+}
+
+/* ================= bots ================= */
+function nearestEdible(x,y,maxd){let best=null,bd=maxd*maxd;
+  for(const f of free){const d=((f.x-x)**2+(f.y-y)**2)*.35;if(d<bd){bd=d;best=f;}}
+  for(const f of food){const dx=f.x-x;if(dx>maxd||dx<-maxd)continue;const d=dx*dx+(f.y-y)**2;if(d<bd){bd=d;best=f;}}
+  return best;}
+function nearestPart(o,x,y){let best=o.heads[0],bd=1e9;for(const q of o.cells){const d=hyp(q.x-x,q.y-y);if(d<bd){bd=d;best=q;}}for(const q of o.heads){const d=hyp(q.x-x,q.y-y);if(d<bd){bd=d;best=q;}}return{p:best,d:bd};}
+function wouldSurvive(h,C,o){return seatsAfter(o,C).includes(h);}
+function think(h){
+  const b=h.bot,C=h.cre,lead=leaderOf(C);let tx=0,ty=0;h.mag=1;
+  if(C.heads.length>1&&lead!==h){
+    const w=b.pers==='loyal'?.85:b.pers==='greedy'?.35:.6;
+    const t=nearestEdible(h.x,h.y,230);let fx=0,fy=0;if(t){fx=t.x-h.x;fy=t.y-h.y;const n=hyp(fx,fy)||1;fx/=n;fy/=n;}
+    tx=lead.dx*w+fx*(1-w);ty=lead.dy*w+fy*(1-w);
+  }else{
+    const my=sizeOf(C);let thr=null,td=1e9,prey=null,pd=1e9,join=null,jd=1e9,peer=null,ed=1e9;
+    for(const o of cres){if(o===C||o.dead)continue;const so=sizeOf(o);
+      const np=nearestPart(o,h.x,h.y);
+      if(so>=my*ABS*.92){
+        if(wouldSurvive(h,C,o)){if(b.social&&C.heads.length===1&&np.d<jd&&!shielded(o)){jd=np.d;join=np.p;}}
+        else if(np.d<td){td=np.d;thr=np.p;}}
+      else if(so*ABS<=my&&!shielded(o)){if(np.d<pd){pd=np.d;prey=np.p;}}
+      else if(b.pers!=='loyal'&&o.cells.length&&np.d<ed&&!shielded(o)){ed=np.d;peer=np.p;}}
+    if(thr&&td<360){tx=h.x-thr.x;ty=h.y-thr.y;const n=hyp(tx,ty)||1;tx=tx/n-ty/n*.3;ty=ty/n+tx*.3;}
+    else if(prey&&pd<640){tx=prey.x-h.x;ty=prey.y-h.y;}
+    else if(join&&jd<320){tx=join.x-h.x;ty=join.y-h.y;}
+    else if(peer&&ed<260){tx=peer.x-h.x;ty=peer.y-h.y;}
+    else{const t=nearestEdible(h.x+h.vx*.3,h.y+h.vy*.3,520);if(t){tx=t.x-h.x;ty=t.y-h.y;}else{b.wa+=rand(-.7,.7);tx=Math.cos(b.wa);ty=Math.sin(b.wa);}}
+    const dc=hyp(h.x,h.y);if(dc>R_DISH-360){const n=hyp(tx,ty)||1,w=(dc-(R_DISH-360))/360*2.2;tx=tx/n-h.x/dc*w;ty=ty/n-h.y/dc*w;}
+  }
+  const n=hyp(tx,ty);if(n>.001){h.dx=tx/n;h.dy=ty/n;}
+}
+function maybeLeave(h){
+  const b=h.bot,C=h.cre;b.leaveT=T+rand(4,7);
+  if(C.heads.length<2||T<h.graceUntil||leaderOf(C)===h)return;
+  let p=b.pers==='traitor'?.1:b.pers==='greedy'?.035:.008;
+  if(h.owned>=10)p*=1.6;
+  if(Math.random()<p)split(h,'left');
+}
+
+/* ================= player ================= */
+function startGame(nick){
+  const p=freeSpot(520);
+  player=makeHead(p.x,p.y,{isPlayer:true,name:nick||'You',col:PLAYER_COL});
+  makeCre(player,4);player.owned=4;player.shieldUntil=T+3;playing=true;stats={start:T,peak:4,kills:0};follow=null;
+  relayout(player.cre);cam.x=player.x;cam.y=player.y;
+  $('start').hidden=true;$('dead').hidden=true;$('me').hidden=false;$('touch').hidden=!TOUCH;
+  say('You are a new head. Eat to grow your body',true);
+}
+function trySplit(){
+  const p=player;if(!p||!p.alive)return;const C=p.cre;
+  if(C.heads.length>1){split(p,'split');return;}
+  if(C.grab){ // alone and grabbed: shed a third of your body to slip free
+    const by=C.grab.by,n=Math.ceil(C.cells.length*.3);
+    for(let i=0;i<n;i++){const b=C.cells.pop();if(b)spawnFree(b.x,b.y);}
+    C.dirty=true;C.grab=null;p.shieldUntil=T+1.5;p.dashUntil=T+.4;
+    let dx=p.x-by.x,dy=p.y-by.y;const d=hyp(dx,dy)||1;p.vx+=dx/d*420;p.vy+=dy/d*420;C.vx+=dx/d*260;C.vy+=dy/d*260;
+    burst(p.x,p.y,p.col,16);ring(p.x,p.y,'#261d2e',p.r+16);
+    say('You slipped free'+(n?', losing '+plural(n,'cell'):''),true);return;}
+  flash('Nothing to break away from. Use it when a chimera grabs you.');
+}
+
+/* ================= simulation step ================= */
+function step(dt){
+  T+=dt;
+  for(const h of heads)h.owned=0;
+  for(const c of cres){if(c.dead||!c.heads.length)continue;for(const b of c.cells){if(!b.owner.alive||b.owner.cre!==c)b.owner=c.heads[0];b.owner.owned++;}}
+  for(const c of cres){if(c.dead||!c.heads.length)continue;
+    let L=leaderOf(c);for(const h of c.heads)if(h!==L&&h.owned>L.owned*1.12+1)L=h;c.lead=L;
+    const co=copilotOf(c);if(c.gkey!==L.id+'.'+(co?co.id:0))c.dirty=true;}
+
+  if(player&&player.alive){
+    const sx=(player.x-cam.x)*cam.z+VW/2,sy=(player.y-cam.y)*cam.z+VH/2,dx=input.mx-sx,dy=input.my-sy,d=hyp(dx,dy);
+    player.mag=input.has?clamp((d-8)/80,0,1):0;if(d>.01){player.dx=dx/d;player.dy=dy/d;}
+    if(input.split){input.split=false;trySplit();}
+  }
+  for(const h of heads){if(!h.bot||!h.alive)continue;const b=h.bot;b.t-=dt;if(b.t<=0){b.t=rand(.16,.3);think(h);}if(T>b.leaveT)maybeLeave(h);}
+
+  // bodies follow their heads
+  for(const c of cres){if(c.dead||!c.heads.length)continue;if(c.dirty)relayout(c);
+    const N=c.cells.length,H=c.heads.length;let ca=Math.cos(c.ang),sa=Math.sin(c.ang);
+    let tx=0,ty=0,hx=0,hy=0;
+    for(const h of c.heads){const a=c.anch.get(h)||{x:0,y:0};tx+=h.x-(a.x*ca-a.y*sa);ty+=h.y-(a.x*sa+a.y*ca);hx+=h.x;hy+=h.y;}
+    tx/=H;ty/=H;hx/=H;hy/=H;
+    const sp=speedOf(c)*1.6;let dvx=(tx-c.x)*14,dvy=(ty-c.y)*14;const dm=hyp(dvx,dvy);if(dm>sp){dvx*=sp/dm;dvy*=sp/dm;}
+    const k=Math.min(1,dt*12);c.vx+=(dvx-c.vx)*k;c.vy+=(dvy-c.vy)*k;
+    c.x+=c.vx*dt+c.pushx;c.y+=c.vy*dt+c.pushy;c.pushx=c.pushy=0;
+    if(N>0){const dd=hyp(hx-c.x,hy-c.y);if(dd>4){let da=Math.atan2(hy-c.y,hx-c.x)-c.ang;da=Math.atan2(Math.sin(da),Math.cos(da));const w=4.2/(1+N*.02)*dt;c.ang+=clamp(da,-w,w);c.turn+=(clamp(da,-1,1)-c.turn)*Math.min(1,dt*4);}}
+    const s=hyp(c.vx,c.vy);c.gait+=(clamp(s/110,0,1)-c.gait)*Math.min(1,dt*5);c.walk+=s*dt*.075;
+    const dc=hyp(c.x,c.y),lim=R_DISH-Math.min(c.plan.rad*.7,220)-10;if(dc>lim){c.x*=lim/dc;c.y*=lim/dc;}
+    ca=Math.cos(c.ang);sa=Math.sin(c.ang);const e=Math.min(1,dt*11),wob=RM?0:1;
+    for(const b of c.cells){const sl=c.plan.slots[b.si];if(!sl)continue;let ox=sl.x,oy=sl.y;
+      if(sl.kind==='l'){const ph=c.walk+(sl.side>0?0:Math.PI)+sl.phase;ox+=Math.sin(ph)*sl.seg*3.6*c.gait*wob;oy+=Math.cos(ph)*sl.seg*1.6*sl.side*c.gait*wob;}
+      else if(sl.kind==='tail'){oy+=(Math.sin(T*4.2-sl.seg*.7)*sl.seg*2.2*wob)-c.turn*sl.seg*4;}
+      else if(sl.kind==='f'){oy+=Math.sin(T*5+sl.seg)*sl.seg*1.8*sl.side*wob;}
+      else if(sl.kind==='h'){oy+=Math.sin(T*6.5+sl.seg*.8)*sl.seg*1.3*sl.side*wob;}
+      else if(sl.kind==='t'){const br=1+.012*Math.sin(T*2.2)*wob;ox*=br;oy*=br;}
+      const wx=c.x+ox*ca-oy*sa,wy=c.y+ox*sa+oy*ca;b.x+=(wx-b.x)*e;b.y+=(wy-b.y)*e;b.r+=(sl.r-b.r)*e;if(b.flash>0)b.flash-=dt;}
+  }
+
+  // heads: steered directly, held by a neck
+  for(const h of heads){if(!h.alive)continue;const c=h.cre,sp=speedOf(c)*1.1;
+    const k=Math.min(1,dt*(T<h.dashUntil?1.2:10));h.vx+=(h.dx*h.mag*sp-h.vx)*k;h.vy+=(h.dy*h.mag*sp-h.vy)*k;
+    const a=c.anch.get(h)||{x:0,y:0},ca=Math.cos(c.ang),sa=Math.sin(c.ang),ax=c.x+a.x*ca-a.y*sa,ay=c.y+a.x*sa+a.y*ca;
+    const L=neckLen(c);let dx=h.x-ax,dy=h.y-ay,d=hyp(dx,dy)||.01;
+    if(d>L){const f=(d-L)*50*dt;h.vx-=dx/d*f;h.vy-=dy/d*f;}
+    h.x+=h.vx*dt;h.y+=h.vy*dt;
+    dx=h.x-ax;dy=h.y-ay;d=hyp(dx,dy)||.01;if(d>L*2.3){h.x=ax+dx/d*L*2.3;h.y=ay+dy/d*L*2.3;d=L*2.3;}
+    h.stretch=d/L;
+    if(c.heads.length>1&&T>h.graceUntil){if(h.stretch>1.5)h.stretchT+=dt;else h.stretchT=Math.max(0,h.stretchT-dt*2);if(h.stretchT>1&&leaderOf(c)!==h)split(h,'tore');}else h.stretchT=0;
+    const dw=hyp(h.x,h.y);if(dw>R_DISH-h.r){h.x*=(R_DISH-h.r)/dw;h.y*=(R_DISH-h.r)/dw;}
+    h.biteCd-=dt;
+    const want=h.mag>.1?Math.atan2(h.dy,h.dx):Math.atan2(h.vy,h.vx);let da=want-h.face;da=Math.atan2(Math.sin(da),Math.cos(da));h.face+=da*Math.min(1,dt*8);
+    h.r+=(HEAD_R+Math.min(7,h.owned*.12)-h.r)*Math.min(1,dt*2);}
+  for(const c of cres){if(c.dead||c.heads.length<2)continue;const a=c.heads[0],b=c.heads[1],dx=b.x-a.x,dy=b.y-a.y,d=hyp(dx,dy)||.01,m=a.r+b.r;if(d<m){const o=(m-d)/2;a.x-=dx/d*o;a.y-=dy/d*o;b.x+=dx/d*o;b.y+=dy/d*o;}}
+
+  // grabbed creatures get pulled in, then swallowed when the timer runs out
+  for(const c of cres){if(!c.grab||c.dead)continue;const by=c.grab.by;
+    if(by.dead||!by.heads.length){c.grab=null;continue;}
+    c.pushx+=(by.x-c.x)*.012;c.pushy+=(by.y-c.y)*.012;
+    if(T>c.grab.until){c.grab=null;if(!shielded(c))absorb(by,c);}}
+  // creatures touch: absorb the smaller one, or bite when close in size
+  for(let i=0;i<cres.length;i++){const A=cres[i];
+    for(let j=i+1;j<cres.length;j++){const B=cres[j];if(A.dead||B.dead||!A.heads.length||!B.heads.length)continue;
+      if(hyp(A.x-B.x,A.y-B.y)>A.rad+B.rad)continue;
+      let touch=false;const contacts=[];
+      const wa=sizeOf(A),wb=sizeOf(B),s=wa+wb;
+      for(const a of A.cells)for(const b of B.cells){const rr=a.r+b.r,dx=b.x-a.x;if(dx>rr||dx<-rr)continue;const dy=b.y-a.y;if(dy>rr||dy<-rr)continue;const d=hyp(dx,dy);
+        if(d<rr&&d>.01){touch=true;const ov=(rr-d)*.08,nx=dx/d,ny=dy/d;A.pushx-=nx*ov*wb/s;A.pushy-=ny*ov*wb/s;B.pushx+=nx*ov*wa/s;B.pushy+=ny*ov*wa/s;}}
+      for(const[X,Y]of[[A,B],[B,A]])for(const h of X.heads){
+        for(const q of Y.cells.concat(Y.heads)){const rr=h.r+q.r,dx=q.x-h.x;if(dx>rr||dx<-rr)continue;const dy=q.y-h.y;if(dy>rr||dy<-rr)continue;const d=hyp(dx,dy)||.01;
+          if(d<rr){touch=true;const ov=rr-d,nx=dx/d,ny=dy/d;h.x-=nx*ov*.6;h.y-=ny*ov*.6;h.vx-=nx*30;h.vy-=ny*30;
+            if(q.t===2){q.x+=nx*ov*.4;q.y+=ny*ov*.4;}else{Y.pushx+=nx*ov*.12;Y.pushy+=ny*ov*.12;}
+            contacts.push([h,q,Y]);}}}
+      if(!touch||shielded(A)||shielded(B))continue;
+      const big=wa>=wb*ABS?A:wb>=wa*ABS?B:null;
+      if(big){const small=big===A?B:A;
+        if(small.grab)continue;
+        if(player&&player.alive&&small.heads.includes(player)&&!seatsAfter(big,small).includes(player)){
+          small.grab={by:big,until:T+.6};floatText('GRABBED',player.x,player.y-player.r-14,'#b8392f');}
+        else absorb(big,small);}
+      else for(const[h,q,Y]of contacts){if(!h.alive||h.biteCd>0||Y.dead||h.cre===Y)continue;if(q.t===2){if(q.alive&&q.cre===Y)headBite(h,q);}else if(q.cre===Y)bite(h,Y,q);}}}
+
+  // eating
+  for(const h of heads){if(!h.alive)continue;const C=h.cre,rr=h.r+5;
+    for(let i=food.length-1;i>=0;i--){const f=food[i],dx=f.x-h.x;if(dx>rr||dx<-rr)continue;const dy=f.y-h.y;if(dy>rr||dy<-rr)continue;
+      if(dx*dx+dy*dy<rr*rr){food[i]=food[food.length-1];food.pop();h.bio++;if(h.bio>=BIO_PER_CELL){h.bio-=BIO_PER_CELL;addCell(C,h,h.x,h.y);if(h.isPlayer)floatText('+1',h.x,h.y-h.r-8,'#55397f');}}}
+    for(let i=free.length-1;i>=0;i--){const f=free[i],r2=h.r+f.r;if(Math.abs(f.x-h.x)>r2||Math.abs(f.y-h.y)>r2)continue;
+      if(hyp(f.x-h.x,f.y-h.y)<r2){free[i]=free[free.length-1];free.pop();addCell(C,h,f.x,f.y);if(h.isPlayer)floatText('+1',h.x,h.y-h.r-8,'#55397f');}}}
+  // the whole body eats too: each crumb feeds whoever owns the cell that touched it
+  for(const c of cres){if(c.dead||!c.cells.length)continue;const R=c.plan.rad+16;
+    for(let i=food.length-1;i>=0;i--){const f=food[i];if(Math.abs(f.x-c.x)>R||Math.abs(f.y-c.y)>R)continue;
+      for(const b of c.cells){const dx=f.x-b.x,dy=f.y-b.y,r=b.r+3;if(dx*dx+dy*dy<r*r){food[i]=food[food.length-1];food.pop();const o=b.owner;o.bio++;if(o.bio>=BIO_PER_CELL){o.bio-=BIO_PER_CELL;addCell(c,o,b.x,b.y);if(o.isPlayer)floatText('+1',b.x,b.y,'#55397f');}break;}}}
+    for(let i=free.length-1;i>=0;i--){const f=free[i];if(Math.abs(f.x-c.x)>R||Math.abs(f.y-c.y)>R)continue;
+      for(const b of c.cells){const r=b.r+f.r;if((f.x-b.x)**2+(f.y-b.y)**2<r*r){free[i]=free[free.length-1];free.pop();addCell(c,b.owner,f.x,f.y);if(b.owner.isPlayer)floatText('+1',f.x,f.y,'#55397f');break;}}}}
+  if(food.length<FOOD_N&&Math.random()<.45)spawnFood();
+  if(free.length<FREE_N&&Math.random()<.03)spawnFree();
+  // metabolism: big bodies shed cells, which become loose cells for others
+  // metabolism: big bodies wither, faster the bigger they get, so nobody snowballs forever
+  for(const c of cres){if(c.dead)continue;const N=c.cells.length;if(N<=20)continue;
+    c.decay=(c.decay||0)+dt*Math.pow((N-20)/35,1.6);
+    while(c.decay>=1&&c.cells.length>20){c.decay-=1;const b=c.cells[(Math.random()*c.cells.length)|0];c.cells.splice(c.cells.indexOf(b),1);c.dirty=true;if(parts.length<450)parts.push({x:b.x,y:b.y,vx:0,vy:0,life:.6,max:.6,col:b.owner.col,r:b.r*.8});}}
+  for(const f of food){f.x+=f.vx*dt;f.y+=f.vy*dt;if(f.x*f.x+f.y*f.y>(R_DISH-30)**2){f.vx=-f.vx;f.vy=-f.vy;}}
+  for(const f of free){f.ph+=dt;f.vx+=Math.cos(f.ph*.7)*8*dt;f.vy+=Math.sin(f.ph*.9)*8*dt;f.vx*=.995;f.vy*=.995;f.x+=f.vx*dt;f.y+=f.vy*dt;if(f.x*f.x+f.y*f.y>(R_DISH-30)**2){f.vx=-f.vx;f.vy=-f.vy;f.x*=.995;f.y*=.995;}}
+
+  for(const p of parts){p.life-=dt;if(!p.ring){p.x+=p.vx*dt;p.y+=p.vy*dt;if(!p.txt){p.vx*=.93;p.vy*=.93;}}}
+  parts=parts.filter(p=>p.life>0);
+
+  let bots=0;for(const h of heads)if(h.alive&&h.bot)bots++;
+  if(bots<BOT_N){spawnT-=dt;if(spawnT<=0){spawnT=.5;spawnBot(3,true);}}
+  heads=heads.filter(h=>h.alive);cres=cres.filter(c=>!c.dead&&c.heads.length);
+
+  if(player&&player.alive){stats.peak=Math.max(stats.peak,player.owned);
+    if(lossT&&T-lossT>1.4){say((lastBiter||'Someone')+' bit off '+plural(lossAcc,'cell')+' from you',true);lossAcc=0;lossT=0;}}
+}
+
+/* ================= camera ================= */
+function updateCam(dt){
+  let fx,fy,rad;
+  if(player&&player.alive){const c=player.cre;fx=player.x*.55+c.x*.45;fy=player.y*.55+c.y*.45;rad=c.plan.rad+HEAD_R*2;}
+  else{if(!follow||!follow.alive||T>followT){let big=cres[0];for(const c of cres)if(sizeOf(c)>sizeOf(big))big=c;follow=leaderOf(big);followT=T+10;}
+    const c=follow.cre;fx=c.x;fy=c.y;rad=c.plan.rad+200;}
+  const md=Math.min(VW,VH),base=md<600?420:680;
+  const zt=clamp(md/(base+rad*2.3),.24,1.25);
+  const k=1-Math.exp(-3.5*dt);cam.x+=(fx-cam.x)*k;cam.y+=(fy-cam.y)*k;cam.z+=(zt-cam.z)*(1-Math.exp(-1.8*dt));
+}
+
+/* ================= rendering ================= */
+function drawGrid(x0,y0,x1,y1){const z=cam.z;
+  ctx.lineWidth=1/z;ctx.strokeStyle='rgba(85,57,127,.07)';ctx.beginPath();
+  for(let x=Math.floor(x0/100)*100;x<=x1;x+=100){ctx.moveTo(x,y0);ctx.lineTo(x,y1);}
+  for(let y=Math.floor(y0/100)*100;y<=y1;y+=100){ctx.moveTo(x0,y);ctx.lineTo(x1,y);}
+  ctx.stroke();ctx.strokeStyle='rgba(85,57,127,.13)';ctx.beginPath();
+  for(let x=Math.floor(x0/500)*500;x<=x1;x+=500)for(const o of[-7,0,7]){ctx.moveTo(x+o,y0);ctx.lineTo(x+o,y1);}
+  for(let y=Math.floor(y0/500)*500;y<=y1;y+=500)for(const o of[-7,0,7]){ctx.moveTo(x0,y+o);ctx.lineTo(x1,y+o);}
+  ctx.stroke();}
+function blob(x,y,r,ph,amp){const N=20;ctx.beginPath();for(let i=0;i<=N;i++){const a=i/N*TAU,rr=r*(1+amp*(.04*Math.sin(3*a+ph+T*2.1)+.03*Math.sin(5*a-T*2.7+ph)));const px=x+Math.cos(a)*rr,py=y+Math.sin(a)*rr;i?ctx.lineTo(px,py):ctx.moveTo(px,py);}ctx.closePath();}
+function neckBase(c,h){const a=c.anch.get(h)||{bx:0,by:0},ca=Math.cos(c.ang),sa=Math.sin(c.ang);return{x:c.x+a.bx*ca-a.by*sa,y:c.y+a.bx*sa+a.by*ca};}
+
+function drawCreature(c){
+  const lead=leaderOf(c),skin=SKIN[lead.col],N=c.cells.length,edgeCol=c.grab?'rgba(184,57,47,'+(.6+.35*Math.sin(T*24)).toFixed(2)+')':rgba(EDGE[lead.col],.7);
+  for(const pass of[0,1]){const grow=pass?4.5:(c.grab?10:7.5);
+    ctx.fillStyle=pass?skin:edgeCol;ctx.beginPath();
+    for(const b of c.cells){ctx.moveTo(b.x+b.r+grow,b.y);ctx.arc(b.x,b.y,b.r+grow,0,TAU);}
+    for(const h of c.heads){ctx.moveTo(h.x+h.r+grow-1,h.y);ctx.arc(h.x,h.y,h.r+grow-1,0,TAU);}
+    ctx.fill();
+    if(N>0){ctx.lineCap='round';ctx.strokeStyle=pass?skin:edgeCol;ctx.lineWidth=RB*1.5+grow*2;
+      ctx.beginPath();for(const h of c.heads){const nb=neckBase(c,h);ctx.moveTo(nb.x,nb.y);ctx.lineTo(h.x,h.y);}ctx.stroke();}}
+  for(const h of c.heads)if(c.heads.length>1&&h.stretch>1.25){const nb=neckBase(c,h);ctx.beginPath();ctx.moveTo(nb.x,nb.y);ctx.lineTo(h.x,h.y);ctx.lineWidth=5;ctx.strokeStyle='rgba(184,57,47,'+(.5+.4*Math.sin(T*18)).toFixed(2)+')';ctx.stroke();}
+  const showMine=player&&player.alive&&c===player.cre&&c.heads.length>1;
+  for(const b of c.cells){const col=b.owner.col;
+    blob(b.x,b.y,b.r,b.ph,RM?0:1);ctx.fillStyle=rgba(col,.42);ctx.fill();ctx.lineWidth=2;ctx.strokeStyle=rgba(col,.9);ctx.stroke();
+    ctx.beginPath();ctx.arc(b.x+Math.cos(b.ph)*b.r*.15,b.y+Math.sin(b.ph)*b.r*.15,b.r*.36,0,TAU);ctx.fillStyle=rgba(col,.8);ctx.fill();
+    if(b.flash>0){ctx.beginPath();ctx.arc(b.x,b.y,b.r+3,0,TAU);ctx.lineWidth=2.5;ctx.strokeStyle='rgba(255,255,255,'+Math.min(1,b.flash*2).toFixed(2)+')';ctx.stroke();}
+    if(showMine&&b.owner===player){ctx.beginPath();ctx.arc(b.x,b.y,b.r*.62,0,TAU);ctx.lineWidth=1.6;ctx.strokeStyle='rgba(255,255,255,.95)';ctx.stroke();}}
+  for(const h of c.heads){const fx=Math.cos(h.face),fy=Math.sin(h.face),px=-fy,py=fx;
+    blob(h.x,h.y,h.r,h.id,RM?0:.7);ctx.fillStyle=rgba(h.col,.6);ctx.fill();ctx.lineWidth=2.6;ctx.strokeStyle=EDGE[h.col];ctx.stroke();
+    const open=clamp(1-(T-h.bitT)/.25,0,1),ma=.55+open*.5;
+    ctx.beginPath();ctx.arc(h.x,h.y,h.r*.78,h.face-ma,h.face+ma);ctx.lineWidth=3+open*3;ctx.strokeStyle='rgba(38,29,46,.75)';ctx.lineCap='round';ctx.stroke();
+    const n=h.eyes,offs=n===1?[0]:n===2?[-.36,.36]:[-.44,0,.44],er=h.r*(n===1?.36:n===2?.27:.22),bl=((T+h.id*.37)%h.blink)<.12;
+    for(let i=0;i<n;i++){const fw=n===3&&i===1?.3:.08,ex=h.x+fx*h.r*fw+px*h.r*offs[i],ey=h.y+fy*h.r*fw+py*h.r*offs[i];
+      ctx.beginPath();if(bl)ctx.ellipse(ex,ey,er,er*.15,h.face,0,TAU);else ctx.arc(ex,ey,er,0,TAU);ctx.fillStyle='#fff';ctx.fill();ctx.lineWidth=1.4;ctx.strokeStyle=EDGE[h.col];ctx.stroke();
+      if(!bl){ctx.beginPath();ctx.arc(ex+fx*er*.42,ey+fy*er*.42,er*.48,0,TAU);ctx.fillStyle='#261d2e';ctx.fill();}}
+    if(h.isPlayer){ctx.beginPath();ctx.arc(h.x,h.y,h.r+6,0,TAU);ctx.lineWidth=3;ctx.strokeStyle='#261d2e';ctx.stroke();}
+    if(T<h.shieldUntil){ctx.save();ctx.setLineDash([2,6]);ctx.beginPath();ctx.arc(h.x,h.y,h.r+16,0,TAU);ctx.lineWidth=2;ctx.strokeStyle='rgba(59,125,182,.85)';ctx.stroke();ctx.restore();}}
+}
+
+function draw(){
+  const z=cam.z;ctx.setTransform(DPR,0,0,DPR,0,0);
+  ctx.fillStyle='#6b5f74';ctx.fillRect(0,0,VW,VH);
+  const hw=VW/2/z,hh=VH/2/z,x0=cam.x-hw,x1=cam.x+hw,y0=cam.y-hh,y1=cam.y+hh;
+  ctx.save();ctx.translate(VW/2,VH/2);ctx.scale(z,z);ctx.translate(-cam.x,-cam.y);
+  const g=ctx.createRadialGradient(0,0,R_DISH*.1,0,0,R_DISH);g.addColorStop(0,'#f5f0f6');g.addColorStop(.82,'#ebe3ee');g.addColorStop(1,'#d6c9dd');
+  ctx.beginPath();ctx.arc(0,0,R_DISH,0,TAU);ctx.fillStyle=g;ctx.fill();
+  ctx.save();ctx.clip();drawGrid(x0,y0,x1,y1);ctx.restore();
+  ctx.beginPath();ctx.arc(0,0,R_DISH+7,0,TAU);ctx.lineWidth=12;ctx.strokeStyle='rgba(255,255,255,.5)';ctx.stroke();
+  ctx.beginPath();ctx.arc(0,0,R_DISH+15,0,TAU);ctx.lineWidth=3;ctx.strokeStyle='#92849b';ctx.stroke();
+
+  ctx.lineCap='round';ctx.lineWidth=4.5;
+  for(let k=0;k<3;k++){ctx.strokeStyle=FOODCOL[k];ctx.beginPath();
+    for(const f of food){if(f.k!==k||f.x<x0-20||f.x>x1+20||f.y<y0-20||f.y>y1+20)continue;const cx=Math.cos(f.a)*f.l/2,cy=Math.sin(f.a)*f.l/2;ctx.moveTo(f.x-cx,f.y-cy);ctx.lineTo(f.x+cx,f.y+cy);}
+    ctx.stroke();}
+  for(const f of free){if(f.x<x0-20||f.x>x1+20||f.y<y0-20||f.y>y1+20)continue;
+    blob(f.x,f.y,f.r,f.ph*3,RM?0:1.2);ctx.fillStyle='rgba(150,138,166,.32)';ctx.fill();ctx.lineWidth=1.6;ctx.strokeStyle='rgba(120,106,138,.8)';ctx.stroke();
+    ctx.beginPath();ctx.arc(f.x,f.y,f.r*.35,0,TAU);ctx.fillStyle='rgba(120,106,138,.7)';ctx.fill();}
+
+  const vis=cres.filter(c=>c.x+c.rad>x0&&c.x-c.rad<x1&&c.y+c.rad>y0&&c.y-c.rad<y1).sort((a,b)=>sizeOf(b)-sizeOf(a));
+  for(const c of vis)drawCreature(c);
+
+  for(const p of parts){const a=clamp(p.life/p.max,0,1);
+    if(p.txt){ctx.font='800 '+(15/z)+'px "Unbounded","Golos Text",system-ui,sans-serif';ctx.textAlign='center';ctx.textBaseline='middle';ctx.globalAlpha=a;ctx.lineWidth=3.5/z;ctx.strokeStyle='rgba(251,248,251,.95)';ctx.strokeText(p.txt,p.x,p.y);ctx.fillStyle=p.col;ctx.fillText(p.txt,p.x,p.y);ctx.globalAlpha=1;}
+    else if(p.ring){ctx.beginPath();ctx.arc(p.x,p.y,p.r*(1.6-a*.6),0,TAU);ctx.lineWidth=2.5;ctx.strokeStyle=rgba(p.col,(a*.8).toFixed(2));ctx.stroke();}
+    else{ctx.beginPath();ctx.arc(p.x,p.y,p.r*a+.4,0,TAU);ctx.fillStyle=rgba(p.col,(a*.85).toFixed(2));ctx.fill();}}
+
+  // labels: size badge on every creature, colored by what it means for you
+  ctx.textAlign='center';ctx.textBaseline='middle';const fs=12/z,showAll=z>.7,me=player&&player.alive?sizeOf(player.cre):0;
+  for(const c of vis){const L=leaderOf(c),sz=sizeOf(c),own=player&&player.alive&&c===player.cre;
+    let col='#5f546a',tag='';
+    if(me&&!own){if(sz>=me*ABS){col='#b8392f';tag=' ▲';}else if(sz*ABS<=me){col='#2f7d52';tag=' ▼';}}
+    if(own)col='#7a2350';
+    ctx.font='700 '+(fs*1.05)+'px "JetBrains Mono",ui-monospace,monospace';
+    const t=(c.heads.length>1?'2 HEADS · ':'')+sz+tag,y=Math.min(L.y,c.y)-Math.max(c.plan.rad*.6,L.r)-22/z;
+    ctx.lineWidth=4/z;ctx.strokeStyle='rgba(251,248,251,.92)';ctx.strokeText(t,c.x*.5+L.x*.5,y);ctx.fillStyle=col;ctx.fillText(t,c.x*.5+L.x*.5,y);
+    for(const h of c.heads){
+      if(h.isPlayer){ctx.font='700 '+fs+'px "Golos Text",system-ui,sans-serif';const y2=h.y+h.r+19/z;ctx.lineWidth=3.5/z;ctx.strokeStyle='rgba(251,248,251,.95)';ctx.strokeText(h.name,h.x,y2);ctx.fillStyle='#261d2e';ctx.fillText(h.name,h.x,y2);}
+      else if(showAll||c.cells.length>=20){ctx.font='600 '+(fs*.9)+'px "Golos Text",system-ui,sans-serif';const y2=h.y+h.r+14/z;ctx.lineWidth=3/z;ctx.strokeStyle='rgba(251,248,251,.85)';ctx.strokeText(h.name,h.x,y2);ctx.fillStyle='rgba(38,29,46,.75)';ctx.fillText(h.name,h.x,y2);}}}
+  ctx.restore();
+
+  const md=Math.max(VW,VH),v=ctx.createRadialGradient(VW/2,VH/2,md*.32,VW/2,VH/2,md*.78);
+  v.addColorStop(0,'rgba(38,29,46,0)');v.addColorStop(1,'rgba(38,29,46,.32)');ctx.fillStyle=v;ctx.fillRect(0,0,VW,VH);
+  if(VW>=760){const L=100*z,bx=VW/2-L/2,by=VH-26;
+    ctx.fillStyle='rgba(38,29,46,.75)';ctx.fillRect(bx,by,L,3);ctx.fillRect(bx,by-4,1.5,11);ctx.fillRect(bx+L-1.5,by-4,1.5,11);
+    ctx.font='500 11px "JetBrains Mono",ui-monospace,monospace';ctx.textAlign='center';ctx.textBaseline='bottom';
+    ctx.fillText('50 µm · ×'+Math.max(10,Math.round(z*500/10)*10),VW/2,by-6);drawMinimap();}
+}
+function drawMinimap(){
+  const R=64,cx=VW-16-R,cy=VH-16-R;
+  ctx.beginPath();ctx.arc(cx,cy,R,0,TAU);ctx.fillStyle='rgba(251,248,251,.88)';ctx.fill();ctx.lineWidth=1;ctx.strokeStyle='#d3c7da';ctx.stroke();
+  const s=R/R_DISH;
+  for(const c of cres){const r=clamp(Math.sqrt(sizeOf(c))*1.1,1.6,9);ctx.beginPath();ctx.arc(cx+c.x*s,cy+c.y*s,r,0,TAU);ctx.fillStyle=rgba(leaderOf(c).col,.8);ctx.fill();}
+  ctx.strokeStyle='rgba(38,29,46,.35)';ctx.lineWidth=1;ctx.strokeRect(cx+(cam.x-VW/2/cam.z)*s,cy+(cam.y-VH/2/cam.z)*s,VW/cam.z*s,VH/cam.z*s);
+  if(player&&player.alive){ctx.beginPath();ctx.arc(cx+player.x*s,cy+player.y*s,3.5,0,TAU);ctx.fillStyle='#fff';ctx.fill();ctx.lineWidth=2;ctx.strokeStyle='#261d2e';ctx.stroke();}
+}
+
+/* ================= HUD ================= */
+function hud(){
+  let chim=0,cellsN=0;for(const c of cres){if(c.heads.length>1)chim++;cellsN+=c.cells.length;}
+  $('census').textContent=plural(cres.length,'creature')+' · '+chim+' two-headed · '+plural(cellsN,'cell');
+  const sorted=heads.slice().sort((a,b)=>b.owned-a.owned),top=VW<700?5:8;
+  let h='';sorted.slice(0,top).forEach((x,i)=>{h+='<li'+(x.isPlayer?' class="me"':'')+'><span class="n">'+(i+1)+'</span><span>'+esc(x.name)+'</span><span>'+x.owned+'</span></li>';});
+  if(player&&player.alive){const i=sorted.indexOf(player);if(i>=top)h+='<li class="me"><span class="n">'+(i+1)+'</span><span>'+esc(player.name)+'</span><span>'+player.owned+'</span></li>';}
+  $('lbList').innerHTML=h;
+  let big=cres[0];for(const c of cres)if(sizeOf(c)>sizeOf(big))big=c;
+  $('biggest').textContent=big?'Biggest creature: '+leaderOf(big).name+(big.heads.length>1?' + '+copilotOf(big).name:'')+', size '+sizeOf(big):'';
+
+  if(player&&player.alive){const p=player,C=p.cre,N=C.cells.length,H=C.heads.length,role=$('role'),L=leaderOf(C),co=copilotOf(C);
+    if(N===0){role.textContent='No body';role.className='bare';}
+    else if(H>1&&L===p){role.textContent='Pilot';role.className='pilot';}
+    else if(H>1){role.textContent='Co-pilot';role.className='co';}
+    else{role.textContent='Solo';role.className='';}
+    $('mSize').textContent=sizeOf(C);$('mOwn').textContent=p.owned;$('mHeads').textContent=H;
+    const E=TOUCH?'<b>Break</b>':'<kbd>Space</kbd>';let t;
+    if(T<flashT){t=esc(flashMsg);$('hint').className='warn';}
+    else if(N===0){t='No body left. Any bite to your head ends you. Eat something, fast.';$('hint').className='warn';}
+    else if(C.grab){t='GRABBED! '+(TOUCH?'Tap <b>Break</b>':'Press <kbd>Space</kbd>')+' now to break free'+(H>1?' with your '+plural(p.owned,'cell'):', it costs a third of your body')+'.';$('hint').className='warn';}
+    else if(H>1&&p.stretchT>0){t='Pulling away… keep going to tear loose with your '+plural(p.owned,'cell')+'.';$('hint').className='warn';}
+    else{$('hint').className='';
+      if(T<p.shieldUntil)t='Shielded for a moment. Eat food and grey cells. Sizes over creatures: <span class="r">red ▲</span> absorbs you, <span class="g">green ▼</span> you absorb, grey you can only bite.';
+      else if(H>1&&L===p)t='You pilot this chimera. '+esc(co.name)+' co-pilots with '+plural(co.owned,'cell')+'. Everything you swallow is split 50/50, so they can catch up and take the lead.';
+      else if(H>1)t='You co-pilot '+esc(L.name)+'\'s chimera: '+p.owned+' of '+N+' cells are yours (outlined white). Prey is split 50/50, so outgrow '+esc(L.name)+' to take the lead. '+E+' breaks away with your cells.';
+      else t='Touch <span class="g">green ▼</span> creatures to absorb them. Avoid <span class="r">red ▲</span> ones. Grey ones are your size: bite their bodies to steal cells.';}
+    $('hint').innerHTML=t;}
+}
+function renderFeed(){feed=feed.filter(e=>T-e.t<9);const max=VW<700?2:4;
+  $('feed').innerHTML=feed.slice(0,max).map(e=>'<li class="'+(e.mine?'mine':'')+(T-e.t>5?' old':'')+'">'+esc(e.text)+'</li>').join('');}
+
+/* ================= input ================= */
+cv.addEventListener('pointermove',e=>{if(e.pointerType==='touch'){if(e.pointerId===input.touchId){input.mx=e.clientX;input.my=e.clientY;}}else{input.mx=e.clientX;input.my=e.clientY;input.has=true;}});
+cv.addEventListener('pointerdown',e=>{
+  if(e.pointerType==='touch'){input.touchId=e.pointerId;input.mx=e.clientX;input.my=e.clientY;input.has=true;return;}
+  input.mx=e.clientX;input.my=e.clientY;input.has=true;if(e.button===2&&playing)input.split=true;});
+addEventListener('pointerup',e=>{if(e.pointerType==='touch'&&e.pointerId===input.touchId){input.touchId=null;input.has=false;}});
+addEventListener('pointercancel',e=>{if(e.pointerId===input.touchId){input.touchId=null;input.has=false;}});
+cv.addEventListener('contextmenu',e=>e.preventDefault());
+addEventListener('keydown',e=>{if(e.target&&e.target.tagName==='INPUT')return;
+  if((e.code==='Space'||e.code==='KeyE'||e.code==='KeyQ')&&playing&&!e.repeat){input.split=true;e.preventDefault();}});
+$('bSplit').addEventListener('pointerdown',e=>{e.preventDefault();if(playing)input.split=true;});
+if(TOUCH){$('ruleSplit').textContent='Tap Break to leave a chimera with every cell you own. If a bigger creature grabs you, you have a moment to tap it and slip free.';$('keys').textContent='Finger on the field: steer · Break: tap';}
+
+let lastNick='';
+function go(){lastNick=$('nick').value.trim().slice(0,14);if(TOUCH)input.has=false;input.mx=VW/2;input.my=VH/2;startGame(lastNick);}
+$('go').addEventListener('click',go);
+$('nick').addEventListener('keydown',e=>{if(e.key==='Enter')go();});
+$('again').addEventListener('click',()=>startGame(lastNick));
+
+/* ================= loop ================= */
+init();
+let last=0,acc=0,hudT=0,feedT=0;
+function frame(ts){
+  const now=ts/1000;let dt=last?now-last:1/60;last=now;dt=Math.min(dt,.1);acc+=dt;
+  let steps=0;while(acc>=1/60&&steps<4){step(1/60);acc-=1/60;steps++;}if(steps===4)acc=0;
+  updateCam(dt);draw();
+  hudT-=dt;if(hudT<=0){hudT=.12;hud();}
+  feedT-=dt;if(feedDirty||feedT<=0){feedDirty=false;feedT=.5;renderFeed();}
+  requestAnimationFrame(frame);
+}
+document.addEventListener('visibilitychange',()=>{last=0;});
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>
